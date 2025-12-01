@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--mode", default="gen", help="Mode to run in (gen, repair)")
     parser.add_argument("--input", default="input.rs", help="Path to input file")
     parser.add_argument("--output", default="output.rs", help="Path to output file")
+    parser.add_argument("--smt2", default="seahorn_out.rs", help="Path to smt2 output file")
     parser.add_argument("--repair", default=10, type=int, help="Number of repair steps")
     # The arguments below were designed for ablation study; in most cases, you want to use the default value
     parser.add_argument(
@@ -44,6 +45,7 @@ def main():
     parser.add_argument(
         "--phase-uniform", action="store_true", help="Unify the first two phases"
     )
+    parser.add_argument("--basline-with-searhorn", action="store_true", help="Use the seahorn static analysis tool.")
     parser.add_argument(
         "--disable-ranking", action="store_true", help="Disable ranking"
     )
@@ -107,7 +109,7 @@ def main():
         logger.error("Invalid mode")
         return
 
-    runner.run(args.input, args.output, args=dict(args._get_kwargs()))
+    runner.run(args.input, args.output, args.smt2, args=dict(args._get_kwargs()))
 
 
 if __name__ == "__main__":

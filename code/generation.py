@@ -35,6 +35,114 @@ class Generation:
             "Generation initialized with repair_uniform: %s", self.repair_uniform
         )
 
+    def direct_full_inference_with_smt2(
+        self,
+        verus_code,
+        smt2_output,
+        temp=0,
+        answer_num=1,
+        error="",
+        use_simple=True,
+        use_misc_examples=True,
+    ):
+        system = "You are an experienced formal language programmer. You are very familiar with Verus, which is a tool for verifying the correctness of code written in Rust."
+
+        complex_instruction = """Your missions are to
+1. Add loop invariants to the given Rust code, if there are loops in the code, so that Verus can verify the give function behaves exact what is described in the specifications
+2. Add the proof blocks that could help Verus to prove the following code snippet. You need to analyze which locations in the code need to be proved and add the proof blocks to help Verus to prove the correctness of the code. You can insert multiple proof blocks in the code as long as they are necessary to prove the correctness of the code. You can also include new ghost variables that could help you to prove the correctness of the code.
+
+Here are some principles that you have to follow:
+Respond with the Rust code only, do not include any explanation.
+If a function is marked with unimplemented!(), please leave it there and do NOT try to add new implementation.
+You should never change or delete any existing code.
+If this function contains no loop, feel free to leave it as it is without adding anything.
+
+Please follow these steps in adding loop invariants for every loop:
+1. You should identify every variable that is read in the loop  (e.g., x[k], y), particularly for array elements like x[k], and add an invariant about the initial value for EACH such variable and array;
+2. You should identify every variable that is written (e.g., y = ..., x.set(..,..)) in every loop, and add an invariant about the value of that variable. Even if an invariant is already specified earlier in the program, please do repeat it in every loop suitable. Copy them in the response.
+3. You should fully utilize the spec functions and proof functions in the invariant.
+
+Here are some common locations where you can add proof blocks:
+1. In the beginning of the function
+2. Before the loop
+3. In the beginning of the loop
+4. In the end of the loop
+5. Before the key operations
+6. After the key operations
+
+The proof block looks like this:
+```
+proof {
+    // your proof code here
+    // assert(...)
+    // LEMMA_FUNCTION(...)
+    // ...
+} // Added by AI
+```
+The ghost variable looks like this:
+```
+let ghost ...; // Added by AI
+```
+
+If there is nothing to add for a function, that is OK. 
+"""
+        simple_instruction = """Please generate loop invariants and proof blocks for the given Rust code, so that Verus can verify the give function behaves exact what is described in the specifications. 
+
+        For the reference, we have attached the smt2 output generated from SeaHorn (which you can parse from here https://github.com/seahorn/seahorn), use that as a context to generate the correct Verus specifications.
+
+        Respond with the Verus code only, do not include any explanation.
+"""
+
+        if use_simple:
+            self.logger.warning("Using simple instruction ...")
+            instruction = simple_instruction
+        else:
+            self.logger.warning("Using complex instruction ...")
+            instruction = complex_instruction
+
+        examples = []
+        if use_misc_examples:
+            for f in sorted(
+                os.listdir(os.path.join(self.config.example_path, "input-temp"))
+            ):
+                if f.endswith(".rs") and f.startswith("ex"):
+                    input_file = os.path.join(self.config.example_path, "input-temp", f)
+                    output_file = os.path.join(
+                        self.config.example_path, "output-temp", f
+                    )
+                    input_content = open(input_file).read()
+                    output_content = open(output_file).read()
+                    examples.append({"query": input_content, "answer": output_content})
+        else:
+            for f in sorted(
+                os.listdir(os.path.join(self.config.example_path, "input"))
+            ):
+                if f.endswith(".rs") and f[2] in self.phase1_examples:
+                    input_file = os.path.join(self.config.example_path, "input", f)
+                    output_file = os.path.join(self.config.example_path, "output", f)
+                    input_content = open(input_file).read()
+                    output_content = open(output_file).read()
+                    examples.append({"query": input_content, "answer": output_content})
+        with open("example.log", "w") as f:
+            for ex in examples:
+                f.write(ex["query"] + "\n")
+                f.write(ex["answer"] + "\n\n")
+
+        self.logger.info("Direct Full Inference ...")
+
+        code_with_smt2 = verus_code + "\n===============================\n Here start the .smt2 output generated form seahorn.\n" + smt2_output
+ 
+        return self.llm.infer_llm(
+            self.config.aoai_generation_model,
+            instruction,
+            examples,
+            code_with_smt2,
+            system,
+            answer_num=answer_num,
+            max_tokens=self.config.max_token,
+            temp=temp,
+        )
+    
     # This long prompt is used in the alternative design where proof generation is done in one shot
     # without further phases of refinement or repair
     def direct_full_inference(
@@ -549,6 +657,36 @@ Here are some principles that you have to follow:
             temp=temp,
         )
 
+    def generate_baseline_static_analyses(self, verus_code, seahorn_output, retry=25):
+        """
+        Generate the proof code.
+        """
+        temp = 1.0
+        answer_num = 5
+
+        best_code_of_all = verus_code
+        best_score_of_all = EvalScore.get_worst_score()
+        # Just send the seahorn code once to the LLM so that is saves in the env/context.
+        # Compile corresponding seahorn compatiable rust code with seahorn -- some funciton call 
+        # Returns -- > string of the .smt2 file. 
+
+        # We promt the LLM with the (rustc, .smt2) file contents once. Just to initialize the context
+        # 
+
+        for i in range(retry):
+            self.logger.info("Direct inference with baseline attempt %d" % i)
+            candidates = self.direct_full_inference_with_smt2(verus_code, smt2_output,  temp, answer_num)
+            for cand_code in candidates:
+                cand_code = clean_code(cand_code)
+                veval = VEval(cand_code, self.logger)
+                score = veval.eval_and_get_score()
+                if score.is_correct():
+                    return cand_code
+                if score > best_score_of_all:
+                    best_score_of_all = score
+                    best_code_of_all = cand_code
+        return best_code_of_all
+
     # An alternative design where the proof is generated in one step (no refinement or repair)
     def generate_baseline(self, code, retry=25):
         """
@@ -559,6 +697,13 @@ Here are some principles that you have to follow:
 
         best_code_of_all = code
         best_score_of_all = EvalScore.get_worst_score()
+        # Just send the seahorn code once to the LLM so that is saves in the env/context.
+        # Compile corresponding seahorn compatiable rust code with seahorn -- some funciton call 
+        # Returns -- > string of the .smt2 file. 
+
+        # We promt the LLM with the (rustc, .smt2) file contents once. Just to initialize the context
+        # 
+
         for i in range(retry):
             self.logger.info("Direct inference with baseline attempt %d" % i)
             candidates = self.direct_full_inference(code, temp, answer_num)
@@ -852,10 +997,11 @@ Here are some principles that you have to follow:
             self.logger.info("Original code is better")
         return code
 
-    def run(self, input_file, output_file, args: dict = {}):
+    def run(self, input_file, output_file, input_seahorn_file=None, args: dict = {}):
         baseline = args.get("is_baseline", False)
         repair_steps = args.get("repair", 5)
         merge_cand = args.get("merge", 5)
+        baseline_with_seahorn = args.get("baseline_with_seahorn", 5)
         temp = args.get("temp", 1.0)
         phase_uniform = args.get("phase_uniform", False)
         disable_ranking = args.get("disable_ranking", False)
@@ -875,6 +1021,7 @@ Here are some principles that you have to follow:
             )
 
         content = open(input_file).read()
+        content_smt2 = open(input_seahorn_file)
         output_file = Path(output_file)
         output_dir = output_file.parent
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -890,6 +1037,9 @@ Here are some principles that you have to follow:
         if baseline:
             self.logger.info("Generate with baseline mode")
             code = self.generate_baseline(content)
+        elif baseline_with_seahorn:
+            self.logger.info("Generate with baseline mode with Seahorn output")
+            code = self.generate_baseline_static_analyses(content, content_smt2)
         elif phase_uniform:
             self.logger.info("Generate with uniform refinement mode")
             self.direct_inference = self.direct_inference_with_refinement
