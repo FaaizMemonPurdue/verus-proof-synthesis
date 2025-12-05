@@ -7,9 +7,10 @@
     "aoai_api_key": [],
     "aoai_max_retries": 5,
     "max_token": 4096,
+    "root_path": "/home/appuser/verus-proof-synthesis",
     "aoai_generation_model": "gpt-4o",
     "aoai_debug_model": "gpt-4o",
-    "verus_path": "/home/appuser/verus/source/target-verus/release/verus",
+    "verus_path": "/home/appuser/verus-proof-synthesis/verus/source/target-verus/release/verus",
     "example_path": "/home/appuser/verus-proof-synthesis/code/examples",
     "lemma_path": "/home/appuser/verus-proof-synthesis/code/lemmas",
     "util_path": "/home/appuser/verus-proof-synthesis/utils"

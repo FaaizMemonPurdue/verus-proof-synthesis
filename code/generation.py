@@ -8,6 +8,8 @@ from houdini import houdini
 from refinement import Refinement
 from veval import VEval, EvalScore
 from utils import evaluate, code_change_is_safe, clean_code, get_nonlinear_lines
+import subprocess
+import os
 
 
 class Generation:
@@ -675,7 +677,7 @@ Here are some principles that you have to follow:
 
         for i in range(retry):
             self.logger.info("Direct inference with baseline attempt %d" % i)
-            candidates = self.direct_full_inference_with_smt2(verus_code, smt2_output,  temp, answer_num)
+            candidates = self.direct_full_inference_with_smt2(verus_code, seahorn_output,  temp, answer_num)
             for cand_code in candidates:
                 cand_code = clean_code(cand_code)
                 veval = VEval(cand_code, self.logger)
@@ -997,6 +999,68 @@ Here are some principles that you have to follow:
             self.logger.info("Original code is better")
         return code
 
+    def execute_seahorn_and_get_smt2(self, input_file_name: str):
+        """
+        Runs seahorn_script.sh on the given Rust file.
+        The input can be:
+            - a bare filename ("foo")
+            - a Rust filename ("foo.rs")
+            - a full or relative path ("/x/y/foo.rs", "src/foo.rs")
+        We extract the base filename without extension and use it for Seahorn.
+        
+        Calls seahorn_script.sh located in root_path,
+        even if this Python file runs inside root_path/code.
+        """
+
+        root = self.config.root_path
+        script_path = os.path.join(root, "seahorn_script.sh")
+
+        # Extract file basename without extension
+        file_basename = os.path.basename(input_file_name)
+        file_key = file_basename[:-3] if file_basename.endswith(".rs") else file_basename
+
+        # SMT2 output file path (absolute!)
+        smt2_path = os.path.join(root, "smt_output", f"{file_key}.smt2")
+
+        # Remove old file if exists
+        if os.path.exists(smt2_path):
+            os.remove(smt2_path)
+
+        try:
+            print(f"Running {script_path} {file_key} ...")
+
+            # IMPORTANT: run from root directory
+            result = subprocess.run(
+                [script_path, file_key],
+                cwd=root,                 # <-- FIX: run from correct directory
+                capture_output=True,
+                text=True
+            )
+
+            # Debug
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr)
+
+            # Check exit code
+            if result.returncode != 0:
+                print(f"Error: script exited with code {result.returncode}")
+                return None
+
+            # Check SMT2 file
+            if not os.path.exists(smt2_path):
+                print(f"SMT2 file not found: {smt2_path}")
+                return None
+
+            # Read SMT2 contents
+            with open(smt2_path, "r") as f:
+                return f.read()
+
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            return None
+
     def run(self, input_file, output_file, input_seahorn_file=None, args: dict = {}):
         baseline = args.get("is_baseline", False)
         repair_steps = args.get("repair", 5)
@@ -1021,7 +1085,7 @@ Here are some principles that you have to follow:
             )
 
         content = open(input_file).read()
-        content_smt2 = open(input_seahorn_file)
+        # content_smt2 = open(input_seahorn_file)
         output_file = Path(output_file)
         output_dir = output_file.parent
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -1039,6 +1103,7 @@ Here are some principles that you have to follow:
             code = self.generate_baseline(content)
         elif baseline_with_seahorn:
             self.logger.info("Generate with baseline mode with Seahorn output")
+            content_smt2 = self.execute_seahorn_and_get_smt2(input_file) 
             code = self.generate_baseline_static_analyses(content, content_smt2)
         elif phase_uniform:
             self.logger.info("Generate with uniform refinement mode")
