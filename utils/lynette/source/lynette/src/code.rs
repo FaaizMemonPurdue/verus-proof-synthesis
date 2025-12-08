@@ -13,7 +13,7 @@ pub enum CallType<'a> {
     Method(&'a syn_verus::ExprMethodCall),
 }
 
-fn get_calls_expr(expr: &syn_verus::Expr) -> Vec<CallType> {
+fn get_calls_expr(expr: &syn_verus::Expr) -> Vec<CallType<'_>> {
     match expr {
         syn_verus::Expr::Call(call) => vec![CallType::Function(call)]
             .into_iter()
@@ -118,7 +118,7 @@ fn get_calls_expr(expr: &syn_verus::Expr) -> Vec<CallType> {
     }
 }
 
-fn get_calls_stmt(stmt: &syn_verus::Stmt) -> Vec<CallType> {
+fn get_calls_stmt(stmt: &syn_verus::Stmt) -> Vec<CallType<'_>> {
     match stmt {
         syn_verus::Stmt::Expr(e) => get_calls_expr(e),
         syn_verus::Stmt::Local(l) => {
@@ -129,7 +129,7 @@ fn get_calls_stmt(stmt: &syn_verus::Stmt) -> Vec<CallType> {
     }
 }
 
-fn get_calls_item(item: &syn_verus::Item) -> Vec<CallType> {
+fn get_calls_item(item: &syn_verus::Item) -> Vec<CallType<'_>> {
     match item {
         syn_verus::Item::Fn(f) => f.block.stmts.iter().flat_map(get_calls_stmt).collect(),
         syn_verus::Item::Const(c) => c.expr.as_ref().map_or(vec![], |expr| get_calls_expr(expr)),
@@ -288,7 +288,7 @@ impl<'a, 'b> GhostVariant<'_> {
     }
 }
 
-fn extract_ghost_expr(stmt: &syn_verus::Expr) -> Vec<GhostVariant> {
+fn extract_ghost_expr(stmt: &syn_verus::Expr) -> Vec<GhostVariant<'_>> {
     match stmt {
         syn_verus::Expr::Block(bl) => bl.block.stmts.iter().flat_map(extract_ghost_stmt).collect(),
         syn_verus::Expr::If(i) => i
@@ -354,7 +354,7 @@ fn extract_ghost_expr(stmt: &syn_verus::Expr) -> Vec<GhostVariant> {
     }
 }
 
-fn extract_ghost_stmt(stmt: &syn_verus::Stmt) -> Vec<GhostVariant> {
+fn extract_ghost_stmt(stmt: &syn_verus::Stmt) -> Vec<GhostVariant<'_>> {
     match stmt {
         syn_verus::Stmt::Expr(e) => extract_ghost_expr(e),
         syn_verus::Stmt::Local(l) => {
@@ -365,7 +365,7 @@ fn extract_ghost_stmt(stmt: &syn_verus::Stmt) -> Vec<GhostVariant> {
     }
 }
 
-fn extract_ghost_sig(sig: &syn_verus::Signature) -> Vec<GhostVariant> {
+fn extract_ghost_sig(sig: &syn_verus::Signature) -> Vec<GhostVariant<'_>> {
     sig.requires.as_ref().map_or(vec![], |r| {
         r.exprs
             .exprs
@@ -385,7 +385,7 @@ fn extract_ghost_sig(sig: &syn_verus::Signature) -> Vec<GhostVariant> {
     })
 }
 
-fn extract_ghost_item(item: &syn_verus::Item) -> Vec<GhostVariant> {
+fn extract_ghost_item(item: &syn_verus::Item) -> Vec<GhostVariant<'_>> {
     match item {
         syn_verus::Item::Fn(f) => extract_ghost_sig(&f.sig)
             .into_iter()

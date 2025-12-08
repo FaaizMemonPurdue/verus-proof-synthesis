@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process;
 use syn_verus::{FnArg, FnArgKind, Type};
 
+mod assert_transform;
 mod code;
 mod deghost;
 mod func;
@@ -15,6 +16,8 @@ mod merge;
 mod unimpl;
 mod utils;
 
+use crate::assert_transform::TransformOptions;
+use crate::assert_transform::do_assert_transform_file;
 use crate::code::*;
 use crate::deghost::*;
 use crate::func::*;
@@ -319,6 +322,18 @@ If there are conflicts in the non-merging part, <FILE1> is preferred.
     Deghost(DeghostArgs),
 }
 
+#[derive(Args)]
+struct AssertTransform {
+    #[clap(short, long, help = "Input file for code to assert transform")]
+    input: PathBuf,
+    #[clap(short, long, help = "Output file for assert transformed code")]
+    output: PathBuf,
+    #[clap(short, long, help = "Set up a crux test for generating counterexamples")]
+    crux_test: bool,
+    #[clap(short, long, help = "Number of iterations to unroll quantifiers for", default_value = "100")]
+    quantifier_iterations: u32,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     #[clap(about = r#"Compare whether two verus source code files generates the same rust code.
@@ -330,6 +345,8 @@ Various flags can be set to have fine-grained control over what ghost code shoul
     Func(FunctionCommands),
     #[clap(subcommand)]
     Code(CodeCommands),
+    #[clap(about = "Transform Verus conditions into asserts")]
+    AssertTransform(AssertTransform),
 }
 
 #[derive(ClapParser)]
@@ -858,6 +875,12 @@ fn main() {
                     }
                 }
             }
+        }
+        Commands::AssertTransform(args) => {
+            do_assert_transform_file(&args.input, &args.output, &TransformOptions {
+                crux_test: args.crux_test,
+                quantifier_iterations: args.quantifier_iterations,
+            });
         }
     };
 }

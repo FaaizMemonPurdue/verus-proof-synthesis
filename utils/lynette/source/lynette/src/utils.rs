@@ -20,6 +20,12 @@ pub enum Error {
     Conflict(String),
 }
 
+impl From<io::Error> for Error {
+    fn from(value: io::Error) -> Self {
+        Self::ReadFile(value)
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::Error::*;

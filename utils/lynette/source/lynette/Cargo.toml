@@ -1,7 +1,7 @@
 [package]
 name = "lynette"
 version = "0.0.0"
-edition = "2018"
+edition = "2024"
 publish = false
 
 [dependencies]
@@ -17,7 +17,7 @@ once_cell = "1.8.0"
 [dependencies.syn_verus]
 git = "https://github.com/verus-lang/verus"
 subdirectory = "dependencies/syn"
-features = ["full", "extra-traits", "parsing"]
+features = ["full", "extra-traits", "parsing", "visit-mut"]
 rev = "f0662d3"
 
 [dependencies.prettyplease_verus]

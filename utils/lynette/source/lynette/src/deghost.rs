@@ -468,7 +468,7 @@ pub fn remove_ghost_from_file(file: &syn_verus::File, mode: &DeghostMode) -> syn
     new_file
 }
 
-fn remove_verus_macro(file: &syn_verus::File) -> syn_verus::File {
+pub fn remove_verus_macro(file: &syn_verus::File) -> syn_verus::File {
     let mut new_items: Vec<syn_verus::Item> = Vec::new();
 
     for item in &file.items {
@@ -490,7 +490,7 @@ fn remove_verus_macro(file: &syn_verus::File) -> syn_verus::File {
     new_file
 }
 
-fn merge_files(file: &syn_verus::File, verus_files: Vec<syn_verus::File>) -> syn_verus::File {
+pub fn deghost_merge_files(file: &syn_verus::File, verus_files: Vec<syn_verus::File>) -> syn_verus::File {
     let mut new_items: Vec<syn_verus::Item> = Vec::new();
 
     for item in &file.items {
@@ -529,6 +529,6 @@ pub fn fextract_pure_rust(filepath: PathBuf, mode: &DeghostMode) -> Result<syn_v
 
         //println!("{}", fprint_file(&merge_files(&pure_file, verus_files.clone()), VFormatter::VerusFmt));
 
-        Ok(merge_files(&pure_file, verus_files))
+        Ok(deghost_merge_files(&pure_file, verus_files))
     })
 }
