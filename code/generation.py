@@ -249,6 +249,95 @@ Respond with the Rust code only, do not include any explanation.
             temp=temp,
         )
 
+    def direct_inference_one_shot(self, code, temp=0, answer_num=1, error=""):
+        system = "You are an experienced formal language programmer. You are very familiar with Verus, which is a tool for verifying the correctness of code written in Rust."
+
+        instruction = """Your mission is to add loop invariants to the given Rust code, if there are loops in the code, so that Verus can verify the give function behaves exact what is described in the specifications. 
+
+Here are some principles that you have to follow:
+Respond with Rust code only, do not include any explanation.
+You should never change or delete existing Rust code.
+
+First convert the rust code to an equivalent verus code having the correct syntax that is compilable. 
+    a. You should be able to learn the syntax of Verus from the example added. 
+    b. You can keep the main function empty as we want the specifications only for the function called in the main function in the Rust code. You can consider those invoked functions are the ones to be verified.
+
+For example, for the following Rust code:
+
+#![no_std]
+
+#[no_mangle]
+pub extern "C" fn count_to_n(n: u32) -> u32 {
+    let mut i: u32 = 0;
+
+    while i < n {
+        i = i + 1;
+    }
+
+    i
+}
+
+#[no_mangle]
+pub extern "C" fn main() -> u32 {
+    count_to_n(5)
+}
+
+The corresponding Verus code is as follows:
+
+use vstd::prelude::*;
+
+verus! {
+
+fn count_to_n(n: u32) -> (r: u32)
+    ensures
+        r == n,
+{
+    let mut i: u32 = 0;
+
+    while i < n
+        invariant
+            i <= n,     // i stays within bounds
+    {
+        i = i + 1;
+    }
+
+    i
+}
+
+} // verus!
+
+fn main() {}
+
+
+Please follow these steps in adding loop invariants for every loop:
+1. You should identify every variable that is read in the loop  (e.g., x[k], y), particularly for array elements like x[k], and add an invariant about the initial value for EACH such variable and array;
+2. You should identify every variable that is written (e.g., y = ..., x.set(..,..)) in every loop, and add an invariant about the value of that variable. Even if an invariant is already specified earlier in the program, please do repeat it in every loop suitable.
+3. You can leverage the spec functions and proof functions in the invariant.
+"""
+        # Integrate the Seq knowledge if needed
+        instruction += self.refinement.add_seq_knowledge(code, instruction)
+
+        examples = []
+
+        for f in sorted(os.listdir(os.path.join(self.config.example_path, "input"))):
+            if f.endswith(".rs") and f[2] in self.phase1_examples:
+                input_file = os.path.join(self.config.example_path, "input", f)
+                output_file = os.path.join(self.config.example_path, "output", f)
+                input_content = open(input_file).read()
+                output_content = open(output_file).read()
+                examples.append({"query": input_content, "answer": output_content})
+
+        return self.llm.infer_llm(
+            self.config.aoai_generation_model,
+            instruction,
+            examples,
+            code,
+            system,
+            answer_num=answer_num,
+            max_tokens=self.config.max_token,
+            temp=temp,
+        )
+
     # The default first-step of preliminary loop invariant generation
     def direct_inference(self, code, temp=0, answer_num=1, error=""):
         system = "You are an experienced formal language programmer. You are very familiar with Verus, which is a tool for verifying the correctness of code written in Rust."
@@ -258,6 +347,46 @@ Respond with the Rust code only, do not include any explanation.
 Here are some principles that you have to follow:
 Respond with Rust code only, do not include any explanation.
 You should never change or delete existing Rust code.
+
+Please follow these steps in adding loop invariants for every loop:
+1. You should identify every variable that is read in the loop  (e.g., x[k], y), particularly for array elements like x[k], and add an invariant about the initial value for EACH such variable and array;
+2. You should identify every variable that is written (e.g., y = ..., x.set(..,..)) in every loop, and add an invariant about the value of that variable. Even if an invariant is already specified earlier in the program, please do repeat it in every loop suitable.
+3. You can leverage the spec functions and proof functions in the invariant.
+"""
+        # Integrate the Seq knowledge if needed
+        instruction += self.refinement.add_seq_knowledge(code, instruction)
+
+        examples = []
+
+        for f in sorted(os.listdir(os.path.join(self.config.example_path, "input"))):
+            if f.endswith(".rs") and f[2] in self.phase1_examples:
+                input_file = os.path.join(self.config.example_path, "input", f)
+                output_file = os.path.join(self.config.example_path, "output", f)
+                input_content = open(input_file).read()
+                output_content = open(output_file).read()
+                examples.append({"query": input_content, "answer": output_content})
+
+        return self.llm.infer_llm(
+            self.config.aoai_generation_model,
+            instruction,
+            examples,
+            code,
+            system,
+            answer_num=answer_num,
+            max_tokens=self.config.max_token,
+            temp=temp,
+        )
+
+    # The default first-step of preliminary loop invariant generation
+    def direct_inference_with_smt2(self, code, smt2_content="", temp=0, answer_num=1, error=""):
+        system = "You are an experienced formal language programmer. You are very familiar with Verus, which is a tool for verifying the correctness of code written in Rust."
+
+        instruction = """Your mission is to add method contracts (requires and ensures clauses) and loop invariants to the given Rust code, if there are loops in the code, so that Verus can verify the give function behaves exact what is described in the specifications. 
+
+Here are some principles that you have to follow:
+Respond with Verus code only, do not include any explanation.
+You should never change or delete existing Rust code.
+
 
 Please follow these steps in adding loop invariants for every loop:
 1. You should identify every variable that is read in the loop  (e.g., x[k], y), particularly for array elements like x[k], and add an invariant about the initial value for EACH such variable and array;
@@ -602,6 +731,32 @@ You should only response with Rust code, and not include any explanation.
             temp=temp,
         )
 
+    def inference_with_smt2(self, code, smt2, temp=0, answer_num=1, error=""):
+        system = "You are an experienced formal language programmer. You are very familiar with Verus, which is a tool for verifying the correctness of code written in Rust."
+
+        instruction = """
+        Now, please refine the current specs that you have already generated based on the smt2 output generated from SeaHorn (attached). 
+        Please improve the current specs so that Verus can verify the given function behaves exactly as described in the specifications. 
+
+ You should only response with Rust code, and not include any explanation. 
+ You should not make any other changes to the program.
+ Make sure that the final code you output can be compiled by Verus.
+"""
+        examples = []
+
+        new_code_with_smt2 = code + "\n===============================\n Here start the .smt2 output generated form seahorn.\n" + smt2
+
+        return self.llm.infer_llm(
+            self.config.aoai_generation_model,
+            instruction,
+            examples,
+            new_code_with_smt2,
+            system,
+            answer_num=answer_num,
+            max_tokens=self.config.max_token,
+            temp=temp,
+        )
+
     # WARNING: This repair agent is **deprecated** (for now).
     # LLM is indeed capable of generating proof blocks, but doing it without error-guidance is not effective
     def proof_block_inference(self, code, temp=0, answer_num=1, error=""):
@@ -725,6 +880,9 @@ Here are some principles that you have to follow:
         code,
         with_inference=True,
         with_refine=True,
+        with_smt2=False,
+        smt2_content="",
+        learning_type=0,
         merge_cand=5,
         verbose=False,
         repair_steps=10,
@@ -755,9 +913,15 @@ Here are some principles that you have to follow:
             while attempt < 3:
                 self.logger.info("Direct inference attempt {}".format(attempt))
                 # Now use direct_inference.
-                codes = self.direct_inference(
-                    original_code, temp=temp, answer_num=answer_num
-                )
+                if learning_type == 0:
+                    codes = self.direct_inference(
+                        original_code, temp=temp, answer_num=answer_num
+                    )
+                else:
+                    self.logger.info("From Rust to Verus: Running one shot learning approach ...")
+                    codes = self.direct_inference_one_shot(
+                        original_code, temp=temp, answer_num=answer_num
+                    )
                 found = False
                 has_unsafe = False
                 for i, cand_code in enumerate(codes):
@@ -886,6 +1050,8 @@ Here are some principles that you have to follow:
 
         if with_refine:
             refine_funcs = self.default_refine_funcs
+            if with_smt2:
+                refine_funcs = [self.inference_with_smt2] + refine_funcs
             # If the code contains non-linear arithmetic
             nl_lines = get_nonlinear_lines(code, self.logger)
             if nl_lines:
@@ -902,7 +1068,14 @@ Here are some principles that you have to follow:
 
                 while attempt < 3:
                     # Only 1 refined candidate.
-                    code = func(original_code, temp=temp)[0]
+                    if func == self.inference_with_smt2:
+                        code = func(
+                            original_code,
+                            smt2_content,
+                            temp=temp,
+                        )[0]
+                    else:
+                        code = func(original_code, temp=temp)[0]
                     # simple filtering
                     code = clean_code(code)
                     newcode = self.refinement.debug_type_error(code)[0]
@@ -1065,12 +1238,16 @@ Here are some principles that you have to follow:
         baseline = args.get("is_baseline", False)
         repair_steps = args.get("repair", 5)
         merge_cand = args.get("merge", 5)
-        baseline_with_seahorn = args.get("baseline_with_seahorn", 5)
+        baseline_with_seahorn = args.get("baseline_with_seahorn", False)
+        with_smt2 = args.get("with_smt2", False)
+        learning_type = args.get("learning_type", 0)
         temp = args.get("temp", 1.0)
         phase_uniform = args.get("phase_uniform", False)
         disable_ranking = args.get("disable_ranking", False)
         direct_repair = args.get("direct_repair", False)
         disable_one_refinement = args.get("disable_one_refinement", -1)
+
+        self.logger.info("Using baseline?: %s" % str(baseline))
 
         if disable_one_refinement >= 0 and disable_one_refinement < len(
             self.default_refine_funcs
@@ -1133,11 +1310,20 @@ Here are some principles that you have to follow:
             )
         else:
             # default/recommended
+            content_smt2 = ""
+            if with_smt2:
+                self.logger.info("Generate with refinement mode with Seahorn output")
+                content_smt2 = self.execute_seahorn_and_get_smt2(input_file) 
+            else:
+                self.logger.info("Generate with refinement mode")
             code = self.generate_with_proof_func(
                 content,
                 with_refine=True,
                 merge_cand=merge_cand,
                 verbose=True,
+                with_smt2=with_smt2,
+                learning_type=learning_type,
+                smt2_content=content_smt2,
                 repair_steps=repair_steps,
                 temp_dir=temp_dir,
                 temp=temp,
