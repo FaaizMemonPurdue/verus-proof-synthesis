@@ -308,8 +308,11 @@ fn count_to_n(n: u32) -> (r: u32)
 
 fn main() {}
 
+Please add method contracts for the function to verify its correctness. For method contracts, you need to generate the preconditions (requires clauses) and the postconditions (ensures clauses) for the function based on its implementation.
+1. The preconditions should specify the conditions that must hold before the function is called. The postconditions should specify the conditions that must hold after the function returns.
+2. You have to understand what the function does and then write the appropriate preconditions and postconditions accordingly.
 
-Please follow these steps in adding loop invariants for every loop:
+Then you need to add loop invariants. Please follow these steps in adding loop invariants for every loop:
 1. You should identify every variable that is read in the loop  (e.g., x[k], y), particularly for array elements like x[k], and add an invariant about the initial value for EACH such variable and array;
 2. You should identify every variable that is written (e.g., y = ..., x.set(..,..)) in every loop, and add an invariant about the value of that variable. Even if an invariant is already specified earlier in the program, please do repeat it in every loop suitable.
 3. You can leverage the spec functions and proof functions in the invariant.
