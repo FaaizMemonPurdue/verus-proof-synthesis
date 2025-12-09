@@ -6,9 +6,10 @@ publish = false
 
 [dependencies]
 serde_json = "1.0"
+serde = { version = "1.0.228", features = ["derive"] }
 colored = "1.7"
 proc-macro2 = { version = "1.0", features = ["span-locations"] }
-syn = "1.0"
+syn = { version = "1.0", features = ["full", "extra-traits", "parsing", "visit-mut"] }
 quote = "1.0.36"
 tempfile = "3.10.1"
 clap = { version = "4.3.11", features = ["derive"] }

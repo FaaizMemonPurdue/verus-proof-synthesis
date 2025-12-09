@@ -116,6 +116,13 @@ pub fn fload_file(filepath: &PathBuf) -> Result<syn_verus::File, Error> {
     })
 }
 
+pub fn load_file_str_rust(code: String) -> syn::File {
+    let ts = proc_macro2::TokenStream::from_str(&code).unwrap();
+
+    // FIXME: hacky fix
+    syn::parse2::<syn::File>(ts).unwrap()
+}
+
 pub fn is_verus_macro(m: &syn_verus::Macro) -> bool {
     m.path.is_ident("verus")
 }

@@ -1,0 +1,1 @@
+{"clause_assertions":[{"expr_str":"forall |i| 0 <= i < r.len() ==> r[i] == 69","assert_loc":{"line":19,"col":4},"clause_loc":{"line":16,"col":8}}]}
