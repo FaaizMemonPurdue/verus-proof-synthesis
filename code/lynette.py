@@ -56,5 +56,11 @@ class Lynette:
         subprocess.run(command)
         if run_fmt:
             subprocess.run(['verusfmt', output_file])
+    
+    def assert_transform(self, input_file: str, output_file: str, metadata_file: str, crux_test: bool, quantifier_iterations: int = 100):
+        args = ["assert-transform", "--input", input_file, "--output", output_file, "--metadata", metadata_file, "--quantifier-iterations", str(quantifier_iterations)]
+        if crux_test:
+            args.append("--crux-test")
+        return self.run(args)
 
 lynette = Lynette()
