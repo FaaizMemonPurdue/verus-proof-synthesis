@@ -330,6 +330,139 @@ fn count_to_n(n: u32) -> (r: u32)
 fn main() {}
 
 
+Also, for the following rust code:
+
+#![no_std]
+#![no_main]
+#![feature(lang_items)]
+#![feature(start)]
+
+use core::panic::PanicInfo;
+
+// ------------------------------------------
+// Required runtime stubs for no_std
+// ------------------------------------------
+
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {}
+}
+
+#[lang = "eh_personality"]
+extern "C" fn eh_personality() {}
+
+
+// =========================================================
+// Jump Game II (Greedy) — SeaHorn Compatible Version
+// =========================================================
+
+#[no_mangle]
+pub extern "C" fn jump(xs: &[i32], rnd: i32) -> i32 {
+    let mut l: usize = 0;
+    let mut r: usize = 0;
+    let mut out: i32 = 0;
+    let N = xs.len();
+
+    // while r + 1 < len
+    while r + 1 < N {
+        let mut max_reach = r;
+        let end = r + 1;   // iterate over [l, end]
+
+        let mut j = l;
+        while j < end {
+            // compute reach = j + xs[j]
+            let step = xs[j];
+            let mut reach = j;
+
+            if step > 0 {
+                // manually saturating add without traits/panics
+                let add = step as usize;
+                if j > core::usize::MAX - add {
+                    reach = core::usize::MAX;
+                } else {
+                    reach = j + add;
+                }
+            }
+
+            if reach > max_reach {
+                max_reach = reach;
+            }
+
+            j += 1;
+        }
+
+        l = end;
+        r = max_reach;
+
+        out += 1;
+    }
+
+    out
+}
+
+
+// =========================================================
+// SeaHorn entry point: test the logic
+// =========================================================
+
+#[no_mangle]
+pub extern "C" fn main(arr: &[i32], rnd: i32) -> i32 {
+    let result = jump(arr, rnd);
+    0
+}
+
+, the corresponding verus code is as follows:
+
+use vstd::prelude::*;
+
+verus! {
+
+fn jump(xs: &[i32], rnd: i32) -> i32 {
+    let N = xs.len();
+    let mut l: usize = 0;
+    let mut r: usize = 0;
+    let mut out: i32 = 0;
+
+    while r + 1 < N {
+        let mut max_reach = r;
+        let end = r + 1;
+
+        let mut j: usize = l;
+        while j < end {
+            let step = xs[j];
+            let mut reach = j;
+
+            if step > 0 {
+                let add = step as usize;
+                if j <= usize::MAX - add {
+                    reach = j + add;
+                } else {
+                    reach = usize::MAX;
+                }
+            }
+
+            if reach > max_reach {
+                max_reach = reach;
+            }
+
+            j = j + 1;
+        }
+
+        l = end;
+        r = max_reach;
+
+        out = out + 1;
+    }
+
+    out
+}
+
+} // verus!
+
+fn main() {}
+
+Note that, you should understand the function arguments in the rust code correctly and then use that to convert the rust code to verus code.
+
 Please follow these steps in adding loop invariants for every loop:
 1. You should identify every variable that is read in the loop  (e.g., x[k], y), particularly for array elements like x[k], and add an invariant about the initial value for EACH such variable and array;
 2. You should identify every variable that is written (e.g., y = ..., x.set(..,..)) in every loop, and add an invariant about the value of that variable. Even if an invariant is already specified earlier in the program, please do repeat it in every loop suitable.
@@ -414,6 +547,104 @@ fn count_to_n(n: u32) -> (r: u32)
 } // verus!
 
 fn main() {}
+
+
+Also, for the following rust function::
+
+fn jump(xs: &[i32], rnd: i32) -> i32 {
+    let mut l: usize = 0;
+    let mut r: usize = 0;
+    let mut out: i32 = 0;
+    let N = xs.len();
+
+    // while r + 1 < len
+    while r + 1 < N {
+        let mut max_reach = r;
+        let end = r + 1;   // iterate over [l, end]
+
+        let mut j = l;
+        while j < end {
+            // compute reach = j + xs[j]
+            let step = xs[j];
+            let mut reach = j;
+
+            if step > 0 {
+                // manually saturating add without traits/panics
+                let add = step as usize;
+                if j > core::usize::MAX - add {
+                    reach = core::usize::MAX;
+                } else {
+                    reach = j + add;
+                }
+            }
+
+            if reach > max_reach {
+                max_reach = reach;
+            }
+
+            j += 1;
+        }
+
+        l = end;
+        r = max_reach;
+
+        out += 1;
+    }
+
+    out
+}
+
+, the corresponding verus code is as follows:
+
+use vstd::prelude::*;
+
+verus! {
+
+fn jump(xs: &[i32], rnd: i32) -> i32 {
+    let N = xs.len();
+    let mut l: usize = 0;
+    let mut r: usize = 0;
+    let mut out: i32 = 0;
+
+    while r + 1 < N {
+        let mut max_reach = r;
+        let end = r + 1;
+
+        let mut j: usize = l;
+        while j < end {
+            let step = xs[j];
+            let mut reach = j;
+
+            if step > 0 {
+                let add = step as usize;
+                if j <= usize::MAX - add {
+                    reach = j + add;
+                } else {
+                    reach = usize::MAX;
+                }
+            }
+
+            if reach > max_reach {
+                max_reach = reach;
+            }
+
+            j = j + 1;
+        }
+
+        l = end;
+        r = max_reach;
+
+        out = out + 1;
+    }
+
+    out
+}
+
+} // verus!
+
+fn main() {}
+
+Note that, you should understand the function arguments in the rust code correctly and then use that to convert the rust code to verus code.
 
 Please add method contracts for the function to verify its correctness. For method contracts, you need to generate the preconditions (requires clauses) and the postconditions (ensures clauses) for the function based on its implementation.
 1. The preconditions should specify the conditions that must hold before the function is called. The postconditions should specify the conditions that must hold after the function returns.
