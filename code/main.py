@@ -55,6 +55,7 @@ def main():
     parser.add_argument("--learning-type", type=int, default=0, help="Learning type: 0 for direct inference, 1 for one-shot learning")
     parser.add_argument("--with-smt2", action="store_true", help="Use smt2 file for refinement")    
     parser.add_argument("--annotated", action="store_true", help="Use annotated code with specs as comments for one-shot learning")
+    parser.add_argument("--rust-only", action="store_true", help="Extract only Rust functions without refinement")
     parser.add_argument(
         "--disable-one-refinement", type=int, default=-1, help="Disable one refinement"
     )

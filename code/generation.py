@@ -7,7 +7,7 @@ from infer import LLM
 from houdini import houdini
 from refinement import Refinement
 from veval import VEval, EvalScore
-from utils import evaluate, code_change_is_safe, clean_code, get_nonlinear_lines
+from utils import evaluate, code_change_is_safe, clean_code, get_nonlinear_lines, extract_functions, clean_source
 import subprocess
 import os
 
@@ -144,6 +144,27 @@ If there is nothing to add for a function, that is OK.
             max_tokens=self.config.max_token,
             temp=temp,
         )
+
+    def extract_python_functions(self, input_path):
+        with open(input_path, "r") as f:
+            src = f.read()
+
+        src = clean_source(src)
+        cleaned = extract_functions(src)
+
+        base, ext = os.path.splitext(input_path)
+        output_file = f"{base}_clean.rs"
+
+        with open(output_file, "w") as f:
+            f.write(cleaned + "\n")
+
+        content_clean = ""
+        with open(output_file, "r") as f:
+            content_clean = f.read()
+
+        print(f"Cleaned Rust file written to: {output_file}")
+
+        return content_clean
     
     # This long prompt is used in the alternative design where proof generation is done in one shot
     # without further phases of refinement or repair
@@ -264,10 +285,7 @@ First convert the rust code to an equivalent verus code having the correct synta
 
 For example, for the following Rust code:
 
-#![no_std]
-
-#[no_mangle]
-pub extern "C" fn count_to_n(n: u32) -> u32 {
+fn count_to_n(n: u32) -> u32 {
     let mut i: u32 = 0;
 
     while i < n {
@@ -275,11 +293,6 @@ pub extern "C" fn count_to_n(n: u32) -> u32 {
     }
 
     i
-}
-
-#[no_mangle]
-pub extern "C" fn main() -> u32 {
-    count_to_n(5)
 }
 
 The corresponding Verus code is as follows:
@@ -1278,6 +1291,7 @@ Here are some principles that you have to follow:
         repair_steps = args.get("repair", 5)
         merge_cand = args.get("merge", 5)
         baseline_with_seahorn = args.get("baseline_with_seahorn", False)
+        rust_only = args.get("rust_only", False)
         with_smt2 = args.get("with_smt2", False)
         annotated = args.get("annotated", False)
         learning_type = args.get("learning_type", 0)
@@ -1356,6 +1370,14 @@ Here are some principles that you have to follow:
                 content_smt2 = self.execute_seahorn_and_get_smt2(input_file) 
             else:
                 self.logger.info("Generate with refinement mode")
+
+            if rust_only:    
+                content = self.extract_python_functions(input_file)
+
+                print("===================  Extracted functions ===================")
+                print(content)
+                print("============================================================")
+            
             code = self.generate_with_proof_func(
                 content,
                 with_refine=True,
