@@ -59,7 +59,7 @@ class Metadata:
     @classmethod
     def from_json(cls, data):
         cls(
-            clause_assertions=[ClauseInfo.from_json(clause) for clause in data]
+            clause_assertions=[ClauseInfo.from_json(clause) for clause in data['clause_assertions']]
         )
     
     def clause_info_for_loc(self, loc: Loc) -> Optional[ClauseInfo]:
@@ -140,6 +140,7 @@ def gen_counterexamples(file: str) -> list[CounterExample]:
         crux_tests_file = os.path.join(tmpdir, 'lib.rs')
         metadata_file = os.path.join(tmpdir, 'metadata.json')
         result = lynette.assert_transform(file, crux_tests_file, metadata_file, True, QUANTIFIER_ITERATIONS)
+        print(result)
         if result.returncode != 0:
             logger.error('assert transforming file failed')
             return []
@@ -148,19 +149,22 @@ def gen_counterexamples(file: str) -> list[CounterExample]:
             metadata = Metadata.from_json(json.load(f))
         
         cargo_toml_file = os.path.join(tmpdir, 'Cargo.toml')
-        with open(cargo_toml_file) as f:
+        with open(cargo_toml_file, 'w') as f:
             f.write(CARGO_TOML_CONTENTS)
         
         out_dir = os.path.join(tmpdir, 'crux_out')
         
         # don't check return code, crux returns failure even when successful compilation, but counterexample found
-        subprocess.run(
+        result = subprocess.run(
             f'cd {tmpdir} && cargo crux-test -- --iteration-bound={QUANTIFIER_ITERATIONS} --recursion-bound={QUANTIFIER_ITERATIONS} --output-directory={out_dir}',
             shell=True,
         )
+        print(result)
 
         with open(os.path.join(out_dir, 'report.json'), 'r') as f:
             results = json.load(f)
         
         return parse_crux_results(metadata, results)
-        
+
+if __name__ == '__main__':
+    gen_counterexamples('/tmp/testing.rs')

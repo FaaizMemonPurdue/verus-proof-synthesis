@@ -72,15 +72,15 @@ impl From<Span> for Loc {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ExprMetadata {
-    expr_str: String,
+struct ClauseInfo {
+    clause: String,
     assert_loc: Loc,
     clause_loc: Loc,
 }
 
 #[derive(Debug, Clone, Default)]
 struct Clauses {
-    metadata: Vec<ExprMetadata>,
+    metadata: Vec<ClauseInfo>,
     clauses: Vec<Expr>,
 }
 
@@ -89,8 +89,8 @@ impl Clauses {
         Clauses {
             metadata: spec.exprs
                 .iter()
-                .map(|expr| ExprMetadata {
-                    expr_str: expr.span().source_text().unwrap_or(String::new()),
+                .map(|expr| ClauseInfo {
+                    clause: expr.span().source_text().unwrap_or(String::new()),
                     // just default for now, figured out later
                     assert_loc: Loc::default(),
                     clause_loc: Loc::from(expr.span()),
@@ -533,7 +533,7 @@ fn assert_transform_parsed_file(file: &mut syn_verus::File, context: &TransformC
 
 struct AssertLocation {
     span: Span,
-    metadata: Option<ExprMetadata>,
+    metadata: Option<ClauseInfo>,
 }
 
 // extracts and metadata for each assert in the file, removes it if present
@@ -566,7 +566,7 @@ impl syn::visit_mut::VisitMut for AssertPostprocessVisitor {
 
 #[derive(Debug, Serialize)]
 struct TransformedMetadata {
-    clause_assertions: Vec<ExprMetadata>,
+    clause_assertions: Vec<ClauseInfo>,
 }
 
 fn postprocess_file(file_data: &str) -> Result<(String, TransformedMetadata), Error> {
@@ -592,8 +592,8 @@ fn postprocess_file(file_data: &str) -> Result<(String, TransformedMetadata), Er
     let clause_assertions = metadata_visitor.assertions.iter()
         .zip(no_metadata_visitor.assertions.iter())
         .filter_map(|(old_location, new_location)| match &old_location.metadata {
-            Some(metadata) => Some(ExprMetadata {
-                expr_str: metadata.expr_str.clone(),
+            Some(metadata) => Some(ClauseInfo {
+                clause: metadata.clause.clone(),
                 clause_loc: metadata.clause_loc,
                 assert_loc: Loc::from(new_location.span),
             }),
