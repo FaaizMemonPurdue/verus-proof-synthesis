@@ -7,7 +7,7 @@ from infer import LLM
 from houdini import houdini
 from refinement import Refinement
 from veval import VEval, EvalScore
-from utils import evaluate, code_change_is_safe, clean_code, get_nonlinear_lines
+from utils import evaluate, code_change_is_safe, clean_code, get_nonlinear_lines, extract_functions, clean_source
 import subprocess
 import os
 
@@ -144,6 +144,27 @@ If there is nothing to add for a function, that is OK.
             max_tokens=self.config.max_token,
             temp=temp,
         )
+
+    def extract_python_functions(self, input_path):
+        with open(input_path, "r") as f:
+            src = f.read()
+
+        src = clean_source(src)
+        cleaned = extract_functions(src)
+
+        base, ext = os.path.splitext(input_path)
+        output_file = f"{base}_clean.rs"
+
+        with open(output_file, "w") as f:
+            f.write(cleaned + "\n")
+
+        content_clean = ""
+        with open(output_file, "r") as f:
+            content_clean = f.read()
+
+        print(f"Cleaned Rust file written to: {output_file}")
+
+        return content_clean
     
     # This long prompt is used in the alternative design where proof generation is done in one shot
     # without further phases of refinement or repair
@@ -249,7 +270,7 @@ Respond with the Rust code only, do not include any explanation.
             temp=temp,
         )
 
-    def direct_inference_one_shot(self, code, temp=0, answer_num=1, error=""):
+    def direct_inference_one_shot(self, code, temp=0, mode=False, answer_num=1, error=""):
         system = "You are an experienced formal language programmer. You are very familiar with Verus, which is a tool for verifying the correctness of code written in Rust."
 
         instruction = """Your mission is to add loop invariants to the given Rust code, if there are loops in the code, so that Verus can verify the give function behaves exact what is described in the specifications. 
@@ -264,10 +285,7 @@ First convert the rust code to an equivalent verus code having the correct synta
 
 For example, for the following Rust code:
 
-#![no_std]
-
-#[no_mangle]
-pub extern "C" fn count_to_n(n: u32) -> u32 {
+fn count_to_n(n: u32) -> u32 {
     let mut i: u32 = 0;
 
     while i < n {
@@ -275,11 +293,6 @@ pub extern "C" fn count_to_n(n: u32) -> u32 {
     }
 
     i
-}
-
-#[no_mangle]
-pub extern "C" fn main() -> u32 {
-    count_to_n(5)
 }
 
 The corresponding Verus code is as follows:
@@ -316,7 +329,13 @@ Then you need to add loop invariants. Please follow these steps in adding loop i
 1. You should identify every variable that is read in the loop  (e.g., x[k], y), particularly for array elements like x[k], and add an invariant about the initial value for EACH such variable and array;
 2. You should identify every variable that is written (e.g., y = ..., x.set(..,..)) in every loop, and add an invariant about the value of that variable. Even if an invariant is already specified earlier in the program, please do repeat it in every loop suitable.
 3. You can leverage the spec functions and proof functions in the invariant.
+
 """
+
+        if mode:
+            self.logger.info("One shot learning with specs added to the code as comments ...")
+            instruction += "\nYou should utilize the comments added to the code as hints to help you generate the correct method contracts and loop invariants. "
+
         # Integrate the Seq knowledge if needed
         instruction += self.refinement.add_seq_knowledge(code, instruction)
 
@@ -497,6 +516,8 @@ Do not change P or any other loop invariants in any other way."""
 Here are some principles that you have to follow:
  You should only response with Rust code, and not include any explanation. 
  You should not make any other changes to the program.
+
+Notice the Rustc and Verus errors added at the end of the code as comments. Use them as context to help you generate the loop invariants about array lengths.
 """
         examples = []
 
@@ -523,7 +544,10 @@ Here are some principles that you have to follow:
         system = "You are an experienced formal language programmer. You are very familiar with Verus, which is a tool for verifying the correctness of code written in Rust."
 
         instruction = """Your mission is to refine some loop invariants in the given Rust code only if the loop has special handling for the first iteration. This is what you should do: if an existing loop invariant P holds for all iterations of the loop except for the first iteration (e.g., some variable updates may only (not) occur during the first loop iteration), please leave P as it is and add another loop invariant conditioned on the loop index (e.g., index > 0 ==> P), following the example below. 
-Do not change P or any other loop invariants in any other way. """
+Do not change P or any other loop invariants in any other way.
+
+Notice the Rustc and Verus errors added at the end of the code as comments. Use them to refine the loop invariants as needed.
+"""
 
         examples = []
 
@@ -572,6 +596,8 @@ Do not change P or any other loop invariants in any other way. """
 You should only response with Rust code, and not include any explanation.
 You should NEVER ever add new variables, NEVER!
 You should only make changes to existing loop invariants in the following ways, and you should not make any other changes to the program.
+
+Notice the Rustc and Verus errors added at the end of the code as comments. Use them as context to help you refine the array-related loop invariants.
 """
         examples = []
 
@@ -605,6 +631,8 @@ Even if an invariant is already specified earlier in the program, please do repe
 Here are some principles that you have to follow:
  You should only response with Rust code, and not include any explanation. 
  You should not make any other changes to the program.
+
+Notice the Rustc and Verus errors added at the end of the code as comments. Use them as context to help you generate the loop invariants about constant parameters.
 """
 
         examples = []
@@ -885,6 +913,7 @@ Here are some principles that you have to follow:
         with_refine=True,
         with_smt2=False,
         smt2_content="",
+        annotated=False,
         learning_type=0,
         merge_cand=5,
         verbose=False,
@@ -921,9 +950,9 @@ Here are some principles that you have to follow:
                         original_code, temp=temp, answer_num=answer_num
                     )
                 else:
-                    self.logger.info("From Rust to Verus: Running one shot learning approach ...")
+                    self.logger.info("From Rust to Verus: Running one shot learning approach, with annotated=%s ..." % annotated)
                     codes = self.direct_inference_one_shot(
-                        original_code, temp=temp, answer_num=answer_num
+                        original_code, temp=temp, mode=annotated, answer_num=answer_num
                     )
                 found = False
                 has_unsafe = False
@@ -1068,6 +1097,17 @@ Here are some principles that you have to follow:
                 self.logger.info("refining with %s" % func.__name__)
                 attempt = 0
                 original_code = code
+                
+                print("\n\n\n")
+                print("Print the error the compiler gave")                
+                print("\n\n\n") 
+                print(veval.rustc_result)
+                print("======================================================")
+                print(veval.verus_errors)
+                print("======================================================")
+                print(veval.verus_result)
+                print("======================================================")
+                print("\n\n\n")
 
                 while attempt < 3:
                     # Only 1 refined candidate.
@@ -1082,6 +1122,14 @@ Here are some principles that you have to follow:
                     # simple filtering
                     code = clean_code(code)
                     newcode = self.refinement.debug_type_error(code)[0]
+
+                    newcode += "/* Rustc error starts here \n"
+                    for i in range(len(veval.rustc_result)):
+                        if ("rendered" in veval.rustc_result[i]):
+                            newcode += str(veval.rustc_result[i]["rendered"]).strip("/")
+                            newcode += "\n"
+                    newcode += "*/"
+                    
                     if newcode:
                         code = newcode
                     if verbose:
@@ -1189,6 +1237,7 @@ Here are some principles that you have to follow:
         """
 
         root = self.config.root_path
+        directory = "seahorn_compatible"
         script_path = os.path.join(root, "seahorn_script.sh")
 
         # Extract file basename without extension
@@ -1203,11 +1252,11 @@ Here are some principles that you have to follow:
             os.remove(smt2_path)
 
         try:
-            print(f"Running {script_path} {file_key} ...")
+            print(f"Running {script_path} {file_key} {directory} ...")
 
             # IMPORTANT: run from root directory
             result = subprocess.run(
-                [script_path, file_key],
+                [script_path, directory, file_key],
                 cwd=root,                 # <-- FIX: run from correct directory
                 capture_output=True,
                 text=True
@@ -1242,7 +1291,9 @@ Here are some principles that you have to follow:
         repair_steps = args.get("repair", 5)
         merge_cand = args.get("merge", 5)
         baseline_with_seahorn = args.get("baseline_with_seahorn", False)
+        rust_only = args.get("rust_only", False)
         with_smt2 = args.get("with_smt2", False)
+        annotated = args.get("annotated", False)
         learning_type = args.get("learning_type", 0)
         temp = args.get("temp", 1.0)
         phase_uniform = args.get("phase_uniform", False)
@@ -1319,12 +1370,21 @@ Here are some principles that you have to follow:
                 content_smt2 = self.execute_seahorn_and_get_smt2(input_file) 
             else:
                 self.logger.info("Generate with refinement mode")
+
+            if rust_only:    
+                content = self.extract_python_functions(input_file)
+
+                print("===================  Extracted functions ===================")
+                print(content)
+                print("============================================================")
+            
             code = self.generate_with_proof_func(
                 content,
                 with_refine=True,
                 merge_cand=merge_cand,
                 verbose=True,
                 with_smt2=with_smt2,
+                annotated=annotated,
                 learning_type=learning_type,
                 smt2_content=content_smt2,
                 repair_steps=repair_steps,
