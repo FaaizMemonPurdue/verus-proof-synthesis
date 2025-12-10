@@ -250,7 +250,7 @@ def gen_counterexamples(verus_code: str) -> list[CounterExample]:
 
 def gen_counterexamples_prompt(verus_code: str) -> str:
     counterexamples = gen_counterexamples(verus_code)
-    return prompt_for_counterexamples(counterexamples)
+    return len(counterexamples), prompt_for_counterexamples(counterexamples)
 
 if __name__ == '__main__':
     print(gen_counterexamples_prompt('''

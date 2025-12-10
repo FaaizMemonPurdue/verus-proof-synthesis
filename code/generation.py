@@ -10,7 +10,7 @@ from veval import VEval, EvalScore
 from utils import evaluate, code_change_is_safe, clean_code, get_nonlinear_lines, extract_functions, clean_source
 import subprocess
 import os
-
+from counterexamples import ClauseInfo, gen_counterexamples_prompt
 
 class Generation:
     def __init__(
@@ -463,6 +463,11 @@ fn main() {}
 
 Note that, you should understand the function arguments in the rust code correctly and then use that to convert the rust code to verus code.
 
+Please add method contracts for the function to verify its correctness. For method contracts, you need to generate the preconditions (requires clauses) and the postconditions (ensures clauses) for the function based on its implementation.
+It is a mandatory to add some method contracts for the function.
+1. The preconditions should specify the conditions that must hold before the function is called. The postconditions should specify the conditions that must hold after the function returns.
+2. You have to understand what the function does and then write the appropriate preconditions and postconditions accordingly.
+
 Please follow these steps in adding loop invariants for every loop:
 1. You should identify every variable that is read in the loop  (e.g., x[k], y), particularly for array elements like x[k], and add an invariant about the initial value for EACH such variable and array;
 2. You should identify every variable that is written (e.g., y = ..., x.set(..,..)) in every loop, and add an invariant about the value of that variable. Even if an invariant is already specified earlier in the program, please do repeat it in every loop suitable.
@@ -647,6 +652,7 @@ fn main() {}
 Note that, you should understand the function arguments in the rust code correctly and then use that to convert the rust code to verus code.
 
 Please add method contracts for the function to verify its correctness. For method contracts, you need to generate the preconditions (requires clauses) and the postconditions (ensures clauses) for the function based on its implementation.
+It is a mandatory to add some method contracts for the function.
 1. The preconditions should specify the conditions that must hold before the function is called. The postconditions should specify the conditions that must hold after the function returns.
 2. You have to understand what the function does and then write the appropriate preconditions and postconditions accordingly.
 
@@ -842,7 +848,7 @@ Here are some principles that you have to follow:
  You should only response with Rust code, and not include any explanation. 
  You should not make any other changes to the program.
 
-Notice the Rustc and Verus errors added at the end of the code as comments. Use them as context to help you generate the loop invariants about array lengths.
+Notice the Rustc and Verus errors added at the end of the code as comments (if there are any). Use them as context to help you generate the loop invariants about array lengths.
 """
         examples = []
 
@@ -871,7 +877,7 @@ Notice the Rustc and Verus errors added at the end of the code as comments. Use 
         instruction = """Your mission is to refine some loop invariants in the given Rust code only if the loop has special handling for the first iteration. This is what you should do: if an existing loop invariant P holds for all iterations of the loop except for the first iteration (e.g., some variable updates may only (not) occur during the first loop iteration), please leave P as it is and add another loop invariant conditioned on the loop index (e.g., index > 0 ==> P), following the example below. 
 Do not change P or any other loop invariants in any other way.
 
-Notice the Rustc and Verus errors added at the end of the code as comments. Use them to refine the loop invariants as needed.
+Notice the Rustc and Verus errors added at the end of the code as comments (if there are any). Use them to refine the loop invariants as needed.
 """
 
         examples = []
@@ -920,15 +926,59 @@ Notice the Rustc and Verus errors added at the end of the code as comments. Use 
 
 You should only response with Rust code, and not include any explanation.
 You should NEVER ever add new variables, NEVER!
-You should only make changes to existing loop invariants in the following ways, and you should not make any other changes to the program.
+You should only make changes to existing loop invariants and/or the method contracts (requires and ensures clauses) in the following ways, and you should not make any other changes to the program.
 
-Notice the Rustc and Verus errors added at the end of the code as comments. Use them as context to help you refine the array-related loop invariants.
+Notice the Rustc and Verus errors added at the end of the code as comments (if there are any). Use them as context to help you refine the array-related loop invariants.
 """
         examples = []
 
         return self.llm.infer_llm(
             self.config.aoai_generation_model,
             instruction,
+            examples,
+            code,
+            system,
+            answer_num=1,
+            max_tokens=self.config.max_token,
+            temp=temp,
+        )
+
+    def counterexample_inference(self, code, no_of_counterexamples, instructions, temp=0, answer_num=1, error=""):
+        """
+        This one checks if any loop invariant is missing.
+
+        In terms of error fixing:
+        ** If Verus complains about a missing loop invariant,
+        we can run this refinement.
+        """
+
+        system = "You are an experienced formal language programmer. You are very familiar with Verus, which is a tool for verifying the correctness of code written in Rust."
+
+        examples = []
+
+        if no_of_counterexamples == 0:
+            instructions = """
+            Crux is not able to find any counter example for the given Rust function. But as Verus still complains about invariant or specs not being satisfied,
+            your mission is to add missing loop invariants to the given Rust function so that Verus can verify the function behaves exactly as described in the specifications.
+            
+            You should only response with Rust code, and not include any explanation.
+            You should NEVER ever add new variables, NEVER!
+            You should only make changes to existing loop invariants and/or the method contracts (requires and ensures clauses) and you should not make any other changes to the program.
+
+            Notice the Rustc and Verus errors added at the end of the code as comments (if there are any). Use them as context to help you generate the loop invariants and refine the method contracts.
+            """
+
+        else:
+            instructions += "\n\n Also notice the Rustc and Verus errors added at the end of the code as comments (if there are any). Use them as context to help you generate the loop invariants and refine the method contracts."
+        
+        self.logger.info("----------------------------------------")
+        self.logger.info("Counterexample-guided refinement ...")
+        # self.logger.info("Instructions: ", instructions)
+        self.logger.info("----------------------------------------")
+
+        return self.llm.infer_llm(
+            self.config.aoai_generation_model,
+            instructions,
             examples,
             code,
             system,
@@ -1237,6 +1287,7 @@ Here are some principles that you have to follow:
         with_inference=True,
         with_refine=True,
         with_smt2=False,
+        with_crux=False,
         smt2_content="",
         annotated=False,
         learning_type=0,
@@ -1416,6 +1467,10 @@ Here are some principles that you have to follow:
             refine_funcs = self.default_refine_funcs
             if with_smt2:
                 refine_funcs = [self.inference_with_smt2] + refine_funcs
+
+            if with_crux:
+                refine_funcs.append(self.counterexample_inference)
+
             # If the code contains non-linear arithmetic
             nl_lines = get_nonlinear_lines(code, self.logger)
             if nl_lines:
@@ -1449,6 +1504,21 @@ Here are some principles that you have to follow:
                             smt2_content,
                             temp=temp,
                         )[0]
+                    elif func == self.counterexample_inference:
+                        result = subprocess.run([
+                                        "rustup",
+                                        "default",
+                                        "1.91.0-x86_64-unknown-linux-gnu"
+                                    ])
+                        
+                        no_of_counterexamples, instructions = gen_counterexamples_prompt(original_code)
+                        code = func(original_code, no_of_counterexamples, instructions, temp=temp)[0]
+                        subprocess.run([
+                                        "rustup",
+                                        "default",
+                                        "nightly-2022-03-01"
+                                    ])
+
                     else:
                         code = func(original_code, temp=temp)[0]
                     # simple filtering
@@ -1625,6 +1695,7 @@ Here are some principles that you have to follow:
         baseline_with_seahorn = args.get("baseline_with_seahorn", False)
         rust_only = args.get("rust_only", False)
         with_smt2 = args.get("with_smt2", False)
+        with_crux = args.get("with_crux", False)
         annotated = args.get("annotated", False)
         learning_type = args.get("learning_type", 0)
         temp = args.get("temp", 1.0)
@@ -1716,6 +1787,7 @@ Here are some principles that you have to follow:
                 merge_cand=merge_cand,
                 verbose=True,
                 with_smt2=with_smt2,
+                with_crux=with_crux,
                 annotated=annotated,
                 learning_type=learning_type,
                 smt2_content=content_smt2,
