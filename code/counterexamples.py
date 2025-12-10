@@ -65,7 +65,7 @@ class Metadata:
         )
     
     def clause_info_for_loc(self, loc: Loc) -> Optional[ClauseInfo]:
-        return next(filter(lambda info: info.assert_loc == loc, self.clause_assertions))
+        return next(filter(lambda info: info.assert_loc == loc, self.clause_assertions), None)
 
 class SymbolType(Enum):
     VALUE = 'Value'
@@ -97,13 +97,21 @@ class SymbolInfo:
     
     # use appropriate value for var based on type
     def extract_int(self, var_data: dict) -> int:
+        
         if self.type_name in ['u8', 'u16', 'u32', 'u64', 'u128', 'usize']:
-            return int(var_data['val-unsigned'], 16)
+            return parse_int_val(var_data['val-unsigned'])
         elif self.type_name in ['i8', 'i16', 'i32', 'i64', 'i128', 'isize']:
-            return int(var_data['val'], 16)
+            return parse_int_val(var_data['val'])
         
         # non int not supported yet
         assert False
+
+def parse_int_val(val: str) -> int:
+    # for some reason random trailing letters are put on values by crux-mir
+    # think it depends on bit width of bitvector
+    while val[-1] not in 'abcdefABCDEF1234567890':
+        val = val[:-1]
+    return int(val, 16)
 
 QUANTIFIER_ITERATIONS = 128
 MAX_ARRAY_SIZE = 8
@@ -127,7 +135,8 @@ def parse_counterexample_vars(metadata: Metadata, data) -> list[VarValue]:
     vars = {}
 
     for var in data:
-        info = SymbolInfo.from_symbol_name(vars['name'])
+        print(var)
+        info = SymbolInfo.from_symbol_name(var['name'])
         name = info.name
 
         if info.type == SymbolType.VALUE:
@@ -149,7 +158,7 @@ def parse_counterexample_vars(metadata: Metadata, data) -> list[VarValue]:
                 if info.index < len(var_val.value):
                     var_val.value[info.index] = info.extract_int(var)
             elif info.type == SymbolType.ARRAY_LEN:
-                length = int(var['val-unsigned'], 16)
+                length = parse_int_val(var['val-unsigned'])
                 var_val.value = var_val.value[:length]
     
     return list(vars.values())
@@ -171,8 +180,8 @@ def parse_crux_results(metadata: Metadata, code_file: str, results) -> list[Coun
             continue
 
         location = Loc(
-            line=location['line'],
-            col=location['col'],
+            line=int(location['line']),
+            col=int(location['col']),
         )
 
         clause_info = metadata.clause_info_for_loc(location)
@@ -183,7 +192,7 @@ def parse_crux_results(metadata: Metadata, code_file: str, results) -> list[Coun
 
         vars = parse_counterexample_vars(metadata, counterexample['counter-example'])
         out.append(CounterExample(
-            vars=vars,
+            values=vars,
             clause=clause_info,
         ))
     

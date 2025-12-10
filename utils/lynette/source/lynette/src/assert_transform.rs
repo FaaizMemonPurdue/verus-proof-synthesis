@@ -70,7 +70,9 @@ impl From<Span> for Loc {
     fn from(value: Span) -> Self {
         Loc {
             line: value.start().line,
-            col: value.start().column,
+            // For some reason column is 0 index while line is 1 index
+            // stick with 1 indexing
+            col: value.start().column + 1,
         }
     }
 }
