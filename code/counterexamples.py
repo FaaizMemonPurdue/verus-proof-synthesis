@@ -213,11 +213,15 @@ def parse_crux_results(metadata: Metadata, code_file: str, results) -> list[Coun
     
     return out
 
-def gen_counterexamples(file: str) -> list[CounterExample]:
+def gen_counterexamples(verus_code: str) -> list[CounterExample]:
     with tempfile.TemporaryDirectory() as tmpdir:
+        verus_file = os.path.join(tmpdir, 'verus.rs')
+        with open(verus_file, 'w') as f:
+            f.write(verus_code)
+
         crux_tests_file = os.path.join(tmpdir, 'lib.rs')
         metadata_file = os.path.join(tmpdir, 'metadata.json')
-        result = lynette.assert_transform(file, crux_tests_file, metadata_file, True, QUANTIFIER_ITERATIONS)
+        result = lynette.assert_transform(verus_file, crux_tests_file, metadata_file, True, QUANTIFIER_ITERATIONS)
         print(result)
         if result.returncode != 0:
             logger.error('assert transforming file failed')
@@ -244,9 +248,29 @@ def gen_counterexamples(file: str) -> list[CounterExample]:
         
         return parse_crux_results(metadata, crux_tests_file, results)
 
-def gen_counterexamples_prompt(file: str) -> str:
-    counterexamples = gen_counterexamples(file)
+def gen_counterexamples_prompt(verus_code: str) -> str:
+    counterexamples = gen_counterexamples(verus_code)
     return prompt_for_counterexamples(counterexamples)
 
 if __name__ == '__main__':
-    print(gen_counterexamples_prompt('/tmp/testing.rs'))
+    print(gen_counterexamples_prompt('''
+use vstd::prelude::*;
+
+verus! {
+
+fn sum(mut input: &[u8]) -> (r: Vec<u8>)
+ensures forall |i| 0 <= i < r.len() ==> r[i] == 69
+{
+    let mut output = Vec::new();
+    let mut i = 0;
+    let n = input.len();
+    // while i < n {
+    //     i += 1;
+    //     output.push(69);
+    // }
+    output.push(70);
+    output
+}
+
+} // verus!
+'''))
