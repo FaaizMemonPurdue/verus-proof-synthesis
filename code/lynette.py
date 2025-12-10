@@ -8,6 +8,12 @@ import subprocess
 from typing import Literal
 
 class Lynette:
+    # meta_command = [
+    #     "cargo",
+    #     "run",
+    #     "--manifest-path=../utils/lynette/source/Cargo.toml",
+    #     "--",
+    # ]
     meta_command = [
         "cargo",
         "run",
