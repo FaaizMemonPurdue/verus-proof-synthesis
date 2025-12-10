@@ -7,7 +7,7 @@ use quote::format_ident;
 use syn_verus::spanned::Spanned;
 use syn_verus::visit_mut::{self, VisitMut};
 use syn_verus::{
-    Attribute, BinOp, Block, Expr, ExprBinary, ExprMacro, FnArg, FnArgKind, FnMode, Ident, Item, ItemFn, Pat, PatIdent, PatType, ReturnType, Specification, Stmt, Type, TypeArray, TypeTuple, UnOp, UseTree, parse_quote
+    Attribute, BinOp, Block, Expr, ExprBinary, ExprMacro, FnArg, FnArgKind, FnMode, Ident, Item, ItemFn, Pat, PatIdent, PatType, ReturnType, Specification, Stmt, Type, TypeTuple, UnOp, UseTree, parse_quote
 };
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +54,10 @@ fn add_cast(expr: &Expr, typ: &str) -> Expr {
     parse_quote! {
         (#expr as #typ)
     }
+}
+
+fn type_to_string(typ: &Type) -> String {
+    typ.span().source_text().unwrap()
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -277,37 +281,106 @@ fn update_expression_spec(expr: &mut Expr, context: &TransformContext) {
     SpecConversionVisitor::new(context).visit_expr_mut(expr);
 }
 
-fn make_crux_symbolic_argument_inner(arg: &Type, arg_name: Ident) -> Vec<Stmt> {
-    let arg_name_str = arg_name.to_string();
+const ARRAY_ARG_LEN: usize = 8;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
+enum SymbolType {
+    Value {
+        type_name: String,
+    },
+    Array {
+        // TODO: maybe support arrays of array?
+        type_name: String,
+        index: usize,
+    },
+    ArrayLen,
+}
+
+/// Each symbolic variable is named as serialized json which encodes data about which argument it is for
+#[derive(Debug, Clone, Serialize)]
+struct SymbolicName {
+    name: String,
+    symbol_type: SymbolType,
+}
+
+impl SymbolicName {
+    fn to_name(&self) -> String {
+        let json = serde_json::to_string(self).unwrap();
+        // add S because identifier must start with letter
+        format!("S{}", hex::encode(json))
+    }
+}
+
+fn make_crux_symbolic_argument_inner(arg: &Type, arg_name: Ident, symbolic_name: Option<String>) -> Vec<Stmt> {
+    let symbolic_name = symbolic_name.unwrap_or_else(|| arg_name.to_string());
 
     match arg {
         Type::Reference(ref_type) => {
             if let Type::Slice(slice_type) = &*ref_type.elem {
-                let array_typ = Type::Array(TypeArray {
-                    bracket_token: Default::default(),
-                    elem: slice_type.elem.clone(),
-                    semi_token: Default::default(),
-                    len: parse_quote!(1),
-                });
+                let elem_type = &slice_type.elem;
+
+                let arr_len_symbolic_name = SymbolicName {
+                    name: symbolic_name.clone(),
+                    symbol_type: SymbolType::ArrayLen,
+                }.to_name();
+
+                let array_elem_exprs = (0..ARRAY_ARG_LEN)
+                    .map(|i| {
+                        let arg_name = SymbolicName {
+                            name: symbolic_name.clone(),
+                            symbol_type: SymbolType::Array { 
+                                type_name: type_to_string(elem_type),
+                                index: i,
+                            },
+                        }.to_name();
+
+                        let expr: Expr = parse_quote! {
+                            <#elem_type as Symbolic>::symbolic(#arg_name)
+                        };
+                        expr
+                    });
 
                 let arr_name = format_ident!("symbolic_array_{arg_name}");
+                let arr_len_name = format_ident!("len_{arg_name}");
 
                 parse_quote! {
-                    let #arr_name = <#array_typ as Symbolic>::symbolic(#arg_name_str);
-                    let #arg_name = crucible::symbolic::prefix(&#arr_name[..]);
+                    let #arr_name = [ #(#array_elem_exprs),* ];
+                    let #arr_len_name = usize::symbolic_where(#arr_len_symbolic_name, |&n| n < #ARRAY_ARG_LEN);
+                    let #arg_name = &#arr_name[..#arr_len_name];
                 }
+                // let array_typ = Type::Array(TypeArray {
+                //     bracket_token: Default::default(),
+                //     elem: slice_type.elem.clone(),
+                //     semi_token: Default::default(),
+                //     len: parse_quote!(#ARRAY_ARG_LEN),
+                // });
+
+                // parse_quote! {
+                //     let #arr_name = <#array_typ as Symbolic>::symbolic(#arg_name_str);
+                //     let #arg_name = crucible::symbolic::prefix(&#arr_name[..]);
+                // }
             } else {
                 let ref_name = format_ident!("ref_{arg_name}");
                 let mut inner_statements =
-                    make_crux_symbolic_argument_inner(&ref_type.elem, ref_name.clone());
+                    make_crux_symbolic_argument_inner(&ref_type.elem, ref_name.clone(), Some(symbolic_name));
                 inner_statements.push(parse_quote! {
                     let #arg_name = &#ref_name;
                 });
                 inner_statements
             }
         }
-        typ => parse_quote! {
-            let #arg_name = <#typ as Symbolic>::symbolic(#arg_name_str);
+        typ => {
+            let arg_name_str = SymbolicName {
+                name: symbolic_name,
+                symbol_type: SymbolType::Value {
+                    type_name: type_to_string(typ),
+                },
+            }.to_name();
+
+            parse_quote! {
+                let #arg_name = <#typ as Symbolic>::symbolic(#arg_name_str);
+            }
         },
     }
 }
@@ -318,7 +391,7 @@ fn make_crux_symbolic_argument(arg: &FnArg, arg_name: Ident) -> Vec<Stmt> {
         panic!("recevier args not supported for testing in crux");
     };
 
-    make_crux_symbolic_argument_inner(&arg.ty, arg_name)
+    make_crux_symbolic_argument_inner(&arg.ty, arg_name, None)
 }
 
 /// Creates a crux test function which calls the given function with symbolic values
@@ -548,7 +621,6 @@ impl syn::visit_mut::VisitMut for AssertPostprocessVisitor {
         // FIXME: actually inspect attr path, so we get the right one, too lazy rn
         let metadata = if let Some(attr) = expr.attrs.pop() {
             let metadata_str = attr.tokens.to_string().replace("\\\"", "\"");
-            println!("{}", metadata_str);
             let metadata = serde_json::from_str(&metadata_str[2..metadata_str.len() - 2]).unwrap();
             Some(metadata)
         } else {

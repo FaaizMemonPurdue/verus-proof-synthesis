@@ -5,6 +5,7 @@ import logging
 import os
 import subprocess
 import json
+from enum import Enum
 
 from lynette import lynette
 
@@ -19,7 +20,8 @@ class Location:
 class VarValue:
     var_name: str
     value: Any
-    location: Location
+    # TODO: location
+    # location: Location
 
 @dataclass
 class CounterExample:
@@ -58,14 +60,53 @@ class Metadata:
 
     @classmethod
     def from_json(cls, data):
-        cls(
+        return cls(
             clause_assertions=[ClauseInfo.from_json(clause) for clause in data['clause_assertions']]
         )
     
     def clause_info_for_loc(self, loc: Loc) -> Optional[ClauseInfo]:
         return next(filter(lambda info: info.assert_loc == loc, self.clause_assertions))
 
+class SymbolType(Enum):
+    VALUE = 'Value'
+    ARRAY = 'Array'
+    ARRAY_LEN = 'ArrayLen'
+
+@dataclass
+class SymbolInfo:
+    name: str
+    type: SymbolType
+    # only present for Value and Array
+    type_name: Optional[str]
+    # only present for array
+    index: Optional[int]
+
+    @classmethod
+    def from_symbol_name(cls, symbol_name: str):
+        assert symbol_name[0] == 'S'
+        json_encoded = bytes.fromhex(symbol_name[1:]).decode('utf-8')
+        data = json.loads(json_encoded)
+
+        symbol_type = data['symbol_type']
+        return cls(
+            name=data['name'],
+            type=SymbolType(symbol_type['type']),
+            type_name=symbol_type.get('type_name'),
+            index=symbol_type.get('index'),
+        )
+    
+    # use appropriate value for var based on type
+    def extract_int(self, var_data: dict) -> int:
+        if self.type_name in ['u8', 'u16', 'u32', 'u64', 'u128', 'usize']:
+            return int(var_data['val-unsigned'], 16)
+        elif self.type_name in ['i8', 'i16', 'i32', 'i64', 'i128', 'isize']:
+            return int(var_data['val'], 16)
+        
+        # non int not supported yet
+        assert False
+
 QUANTIFIER_ITERATIONS = 128
+MAX_ARRAY_SIZE = 8
 
 CARGO_TOML_CONTENTS = '''
 [package]
@@ -83,20 +124,33 @@ path = "lib.rs"
 '''
 
 def parse_counterexample_vars(metadata: Metadata, data) -> list[VarValue]:
-    # TODO: handle arrays
     vars = {}
 
     for var in data:
-        name = var['name']
-        vars[name] = VarValue(
-            var_name=name,
-            # TODO: select proper representation based on signed or unsigned
-            value=int(var['val-decimal']),
-            location=Location(
-                line=int(var['loc']['line']),
-                column=int(var['loc']['col']),
-            ),
-        )
+        info = SymbolInfo.from_symbol_name(vars['name'])
+        name = info.name
+
+        if info.type == SymbolType.VALUE:
+            vars[name] = VarValue(
+                var_name=name,
+                value=info.extract_int(var),
+            )
+        else:
+            if name not in vars:
+                vars[name] = VarValue(
+                    var_name=name,
+                    value=[0] * MAX_ARRAY_SIZE,
+                )
+
+            var_val = vars[name]
+            
+            if info.type == SymbolType.ARRAY:
+                # array may have been shrunk, don't want to cause oob exception
+                if info.index < len(var_val.value):
+                    var_val.value[info.index] = info.extract_int(var)
+            elif info.type == SymbolType.ARRAY_LEN:
+                length = int(var['val-unsigned'], 16)
+                var_val.value = var_val.value[:length]
     
     return list(vars.values())
 
@@ -164,7 +218,7 @@ def gen_counterexamples(file: str) -> list[CounterExample]:
         with open(os.path.join(out_dir, 'report.json'), 'r') as f:
             results = json.load(f)
         
-        return parse_crux_results(metadata, results)
+        return parse_crux_results(metadata, crux_tests_file, results)
 
 if __name__ == '__main__':
-    gen_counterexamples('/tmp/testing.rs')
+    print(gen_counterexamples('/tmp/testing.rs'))
