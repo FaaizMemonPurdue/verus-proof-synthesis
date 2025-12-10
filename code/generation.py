@@ -285,6 +285,100 @@ First convert the rust code to an equivalent verus code having the correct synta
 
 For example, for the following Rust code:
 
+#![no_std]
+
+#[no_mangle]
+pub extern "C" fn count_to_n(n: u32) -> u32 {
+    let mut i: u32 = 0;
+
+    while i < n {
+        i = i + 1;
+    }
+
+    i
+}
+
+#[no_mangle]
+pub extern "C" fn main() -> u32 {
+    count_to_n(5)
+}
+
+The corresponding Verus code is as follows:
+
+use vstd::prelude::*;
+
+verus! {
+
+fn count_to_n(n: u32) -> (r: u32)
+    ensures
+        r == n,
+{
+    let mut i: u32 = 0;
+
+    while i < n
+        invariant
+            i <= n,     // i stays within bounds
+    {
+        i = i + 1;
+    }
+
+    i
+}
+
+} // verus!
+
+fn main() {}
+
+
+Please follow these steps in adding loop invariants for every loop:
+1. You should identify every variable that is read in the loop  (e.g., x[k], y), particularly for array elements like x[k], and add an invariant about the initial value for EACH such variable and array;
+2. You should identify every variable that is written (e.g., y = ..., x.set(..,..)) in every loop, and add an invariant about the value of that variable. Even if an invariant is already specified earlier in the program, please do repeat it in every loop suitable.
+3. You can leverage the spec functions and proof functions in the invariant.
+"""
+
+        if mode:
+            self.logger.info("One shot learning with specs added to the code as comments ...")
+            instruction += "\nYou should utilize the comments added to the code as hints to help you generate the correct method contracts and loop invariants. "
+
+        # Integrate the Seq knowledge if needed
+        instruction += self.refinement.add_seq_knowledge(code, instruction)
+
+        examples = []
+
+        for f in sorted(os.listdir(os.path.join(self.config.example_path, "input"))):
+            if f.endswith(".rs") and f[2] in self.phase1_examples:
+                input_file = os.path.join(self.config.example_path, "input", f)
+                output_file = os.path.join(self.config.example_path, "output", f)
+                input_content = open(input_file).read()
+                output_content = open(output_file).read()
+                examples.append({"query": input_content, "answer": output_content})
+
+        return self.llm.infer_llm(
+            self.config.aoai_generation_model,
+            instruction,
+            examples,
+            code,
+            system,
+            answer_num=answer_num,
+            max_tokens=self.config.max_token,
+            temp=temp,
+        )
+
+    def direct_inference_one_shot_rust_function(self, code, temp=0, mode=False, answer_num=1, error=""):
+        system = "You are an experienced formal language programmer. You are very familiar with Verus, which is a tool for verifying the correctness of code written in Rust."
+
+        instruction = """Your mission is to add loop invariants to the given Rust code, if there are loops in the code, so that Verus can verify the give function behaves exact what is described in the specifications. 
+
+Here are some principles that you have to follow:
+Respond with Rust code only, do not include any explanation.
+You should never change or delete existing Rust code.
+
+First convert the rust code to an equivalent verus code having the correct syntax that is compilable. 
+    a. You should be able to learn the syntax of Verus from the example added. 
+    b. You can keep the main function empty as we want the specifications only for the function called in the main function in the Rust code. You can consider those invoked functions are the ones to be verified.
+
+For example, for the following Rust code:
+
 fn count_to_n(n: u32) -> u32 {
     let mut i: u32 = 0;
 
@@ -917,6 +1011,7 @@ Here are some principles that you have to follow:
         learning_type=0,
         merge_cand=5,
         verbose=False,
+        rust_only=False,
         repair_steps=10,
         temp=1.0,
         temp_dir=Path("output-intermediate-temp"),
@@ -951,9 +1046,15 @@ Here are some principles that you have to follow:
                     )
                 else:
                     self.logger.info("From Rust to Verus: Running one shot learning approach, with annotated=%s ..." % annotated)
-                    codes = self.direct_inference_one_shot(
-                        original_code, temp=temp, mode=annotated, answer_num=answer_num
-                    )
+                    if rust_only:
+                        self.logger.info("Rust-only mode: only generate Rust code without Verus annotations.")
+                        codes = self.direct_inference_one_shot_rust_function(
+                            original_code, temp=temp, mode=annotated, answer_num=answer_num
+                        )
+                    else:
+                        codes = self.direct_inference_one_shot(
+                            original_code, temp=temp, mode=annotated, answer_num=answer_num
+                        )
                 found = False
                 has_unsafe = False
                 for i, cand_code in enumerate(codes):
@@ -1387,6 +1488,7 @@ Here are some principles that you have to follow:
                 annotated=annotated,
                 learning_type=learning_type,
                 smt2_content=content_smt2,
+                rust_only=rust_only,
                 repair_steps=repair_steps,
                 temp_dir=temp_dir,
                 temp=temp,
