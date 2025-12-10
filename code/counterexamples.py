@@ -28,6 +28,21 @@ class CounterExample:
     values: list[VarValue]
     clause: 'ClauseInfo'
 
+    def to_prompt(self) -> str:
+        vars = ''.join(f'{value.var_name} = {value.value}\n' for value in self.values)
+        return f'Counterexample for clause: `{self.clause.clause}` on line {self.clause.clause_loc.line}, column {self.clause.clause_loc.col}\n{vars}'
+
+def prompt_for_counterexamples(counterexamples: list[CounterExample]) -> str:
+    counterexample_text = '\n'.join(counterexample.to_prompt() for counterexample in counterexamples)
+    return f'''
+Counterexamples for incorrect invariant and ensures clauses are shown below. The specific clause along with its line and column number in the original source code are displayed.
+The lines after each clause indicate an assignment of inputs to the function which cause the clause to not hold.
+These counterexamples may be useful to help you debug failing Verus specifications.
+
+Counterexamples:
+{counterexample_text}
+'''
+
 @dataclass
 class Loc:
     line: int
@@ -229,5 +244,9 @@ def gen_counterexamples(file: str) -> list[CounterExample]:
         
         return parse_crux_results(metadata, crux_tests_file, results)
 
+def gen_counterexamples_prompt(file: str) -> str:
+    counterexamples = gen_counterexamples(file)
+    return prompt_for_counterexamples(counterexamples)
+
 if __name__ == '__main__':
-    print(gen_counterexamples('/tmp/testing.rs'))
+    print(gen_counterexamples_prompt('/tmp/testing.rs'))
