@@ -476,7 +476,9 @@ Please follow these steps in adding loop invariants for every loop:
 
         if mode:
             self.logger.info("One shot learning with specs added to the code as comments ...")
-            instruction += "\nYou should utilize the comments added to the code as hints to help you generate the correct method contracts and loop invariants. "
+            instruction += """\nYou should utilize the comments added to the code as hints to help you generate the correct method contracts and loop invariants.
+                                If you find any spec_functions in the annotations, you should try to complete them and utilize them.  
+                            """ 
 
         # Integrate the Seq knowledge if needed
         instruction += self.refinement.add_seq_knowledge(code, instruction)
