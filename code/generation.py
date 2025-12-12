@@ -1627,7 +1627,7 @@ Here are some principles that you have to follow:
             self.logger.info("Original code is better")
         return code
 
-    def execute_seahorn_and_get_smt2(self, input_file_name: str):
+    def execute_seahorn_and_get_smt2(self, input_file_name: str, directory: str = ""):
         """
         Runs seahorn_script.sh on the given Rust file.
         The input can be:
@@ -1641,7 +1641,9 @@ Here are some principles that you have to follow:
         """
 
         root = self.config.root_path
-        directory = "seahorn_compatible"
+        print("obtained directory:", directory)
+        if directory == "":
+            directory = "seahorn_compatible"
         script_path = os.path.join(root, "seahorn_script.sh")
 
         # Extract file basename without extension
@@ -1720,6 +1722,8 @@ Here are some principles that you have to follow:
                 + self.default_refine_funcs[disable_one_refinement + 1 :]
             )
 
+        full_path = os.path.abspath(input_file)
+        directory = os.path.dirname(full_path)  # returns the directory portion
         content = open(input_file).read()
         # content_smt2 = open(input_seahorn_file)
         output_file = Path(output_file)
@@ -1739,7 +1743,7 @@ Here are some principles that you have to follow:
             code = self.generate_baseline(content)
         elif baseline_with_seahorn:
             self.logger.info("Generate with baseline mode with Seahorn output")
-            content_smt2 = self.execute_seahorn_and_get_smt2(input_file) 
+            content_smt2 = self.execute_seahorn_and_get_smt2(input_file, directory) 
             code = self.generate_baseline_static_analyses(content, content_smt2)
         elif phase_uniform:
             self.logger.info("Generate with uniform refinement mode")
@@ -1772,7 +1776,7 @@ Here are some principles that you have to follow:
             content_smt2 = ""
             if with_smt2:
                 self.logger.info("Generate with refinement mode with Seahorn output")
-                content_smt2 = self.execute_seahorn_and_get_smt2(input_file) 
+                content_smt2 = self.execute_seahorn_and_get_smt2(input_file, directory) 
             else:
                 self.logger.info("Generate with refinement mode")
 
